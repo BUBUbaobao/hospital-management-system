@@ -1,0 +1,16 @@
+package com.hospital.repository;
+
+import com.hospital.entity.VisitItem;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface VisitItemRepository extends JpaRepository<VisitItem, Long> {
+
+    @Query("SELECT vi FROM VisitItem vi WHERE vi.visit.id = :visitId")
+    List<VisitItem> findByVisitId(@Param("visitId") Long visitId);
+}

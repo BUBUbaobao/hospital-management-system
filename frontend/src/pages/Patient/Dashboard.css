@@ -1,0 +1,29 @@
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #001529;
+  padding: 0 24px;
+}
+
+.logo {
+  color: #fff;
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.user-info {
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.user-info button {
+  color: #fff;
+}
+
+.user-info button:hover {
+  color: #1890ff;
+}
+
