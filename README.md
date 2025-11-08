@@ -136,10 +136,9 @@ mysql -u root -p < init_hospital_db.sql
 
 或使用 Navicat 等工具直接执行 `init_hospital_db.sql`。
 
-**数据库信息**：
-- 数据库名：`hospital`
-- 账号：`root`
-- 密码：`jyh20050820`
+**重要提示**：
+- 数据库名：`hospital`（脚本会自动创建）
+- 需要修改 `backend/src/main/resources/application.properties` 中的数据库密码为你自己的密码
 
 ### 2. 启动后端
 ```bash
@@ -410,8 +409,8 @@ mvn test
 
 ## 版本信息
 - **项目版本**：v1.0.0
-- **文档版本**：v1.0
-- **最后更新**：2025-11-04
+- **文档版本**：v1.1
+- **最后更新**：2025-11-08
 
 ---
 

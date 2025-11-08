@@ -1,7 +1,8 @@
 ## 医院患者预约挂号系统 - MySQL 数据库设计
 
-文档版本：v1.0  
+文档版本：v1.1  
 编制日期：2025-10-31  
+最后更新：2025-11-08  
 依据文档：`需求说明书.md`、`技术架构说明.md`
 
 ---
@@ -72,7 +73,7 @@ CREATE TABLE patients (
   age TINYINT UNSIGNED COMMENT '年龄（选填）',
   height DECIMAL(5,2) COMMENT '身高（cm，选填）',
   weight DECIMAL(5,2) COMMENT '体重（kg，选填）',
-  avatar_url VARCHAR(255) COMMENT '头像路径',
+  avatar_url TEXT COMMENT '头像路径（Base64编码）',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '注册时间',
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   INDEX idx_account (account),
@@ -87,7 +88,7 @@ CREATE TABLE patients (
 - `real_name`：注册时必填，作为系统昵称
 - `phone`：11 位手机号，注册时校验
 - `age/height/weight`：选填字段，允许 NULL
-- `avatar_url`：本地文件路径
+- `avatar_url`：头像数据（Base64 编码），使用 TEXT 类型支持长文本存储
 
 ---
 
@@ -102,7 +103,7 @@ CREATE TABLE doctors (
   password_hash VARCHAR(255) NOT NULL COMMENT '密码哈希（BCrypt）',
   name VARCHAR(64) NOT NULL COMMENT '医生姓名',
   status ENUM('ON_DUTY', 'OFF_DUTY') NOT NULL DEFAULT 'ON_DUTY' COMMENT '在岗状态',
-  avatar_url VARCHAR(255) COMMENT '头像路径',
+  avatar_url TEXT COMMENT '头像路径（Base64编码）',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   deleted_at DATETIME COMMENT '删除时间（NULL表示未删除）',
@@ -266,20 +267,40 @@ CREATE TABLE appointments (
 ```sql
 CREATE TABLE visits (
   id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '就诊记录ID',
+  patient_id BIGINT NOT NULL COMMENT '患者ID',
+  doctor_id BIGINT COMMENT '医生ID',
+  department_id BIGINT COMMENT '科室ID',
+  visit_at DATETIME NOT NULL COMMENT '就诊时间',
   appointment_id BIGINT NOT NULL UNIQUE COMMENT '关联预约ID',
-  fee DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '费用（元）',
+  total_fee DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT '总费用（元）',
   doctor_advice TEXT COMMENT '医生建议',
+  status ENUM('COMPLETED', 'CANCELLED') NOT NULL DEFAULT 'COMPLETED' COMMENT '就诊状态',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '就诊完成时间',
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   INDEX idx_appointment (appointment_id),
   INDEX idx_created (created_at),
-  CONSTRAINT fk_visit_appointment FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE CASCADE
+  INDEX idx_patient (patient_id),
+  INDEX idx_doctor (doctor_id),
+  INDEX idx_department (department_id),
+  CONSTRAINT fk_visit_appointment FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE CASCADE,
+  CONSTRAINT fk_visit_patient FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+  CONSTRAINT fk_visit_doctor FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE SET NULL,
+  CONSTRAINT fk_visit_department FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='就诊记录表';
 ```
+
+**字段说明**：
+- `patient_id`：患者ID，快照保存便于查询
+- `doctor_id`：医生ID，可为空（医生删除时保留记录）
+- `department_id`：科室ID，可为空（科室删除时保留记录）
+- `visit_at`：就诊时间，从预约表复制
+- `total_fee`：总费用，由 visit_items 表计算汇总
+- `status`：就诊状态（COMPLETED已完成/CANCELLED已取消）
 
 **业务规则**：
 - 一次预约对应一条就诊记录（1:1）
 - 费用为医生添加的药品服务汇总
+- 支持就诊状态管理，便于统计分析
 
 ---
 
@@ -292,6 +313,7 @@ CREATE TABLE items (
   id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '项目ID',
   name VARCHAR(128) NOT NULL COMMENT '项目名称',
   price DECIMAL(10,2) NOT NULL COMMENT '单价（元）',
+  unit VARCHAR(20) COMMENT '单位',
   type ENUM('DRUG', 'SERVICE') NOT NULL COMMENT '类型（DRUG药品/SERVICE服务）',
   enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -321,8 +343,10 @@ CREATE TABLE visit_items (
   id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '关联ID',
   visit_id BIGINT NOT NULL COMMENT '就诊记录ID',
   item_id BIGINT NOT NULL COMMENT '项目ID',
+  item_name VARCHAR(100) NOT NULL DEFAULT '' COMMENT '项目名称（快照）',
+  unit_price DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT '单价（快照）',
   quantity INT NOT NULL DEFAULT 1 COMMENT '数量',
-  amount DECIMAL(10,2) NOT NULL COMMENT '小计（单价×数量）',
+  total_amount DECIMAL(10,2) NOT NULL COMMENT '小计（单价×数量）',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   INDEX idx_visit (visit_id),
   INDEX idx_item (item_id),
@@ -330,6 +354,15 @@ CREATE TABLE visit_items (
   CONSTRAINT fk_vi_item FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='就诊项目关联表';
 ```
+
+**字段说明**：
+- `item_name`：项目名称快照，防止项目删除后无法查看历史记录
+- `unit_price`：单价快照，记录开药时的价格
+- `total_amount`：小计金额（单价 × 数量）
+
+**业务规则**：
+- 使用快照设计，保留历史价格信息
+- 项目删除时不能删除已有的就诊记录（RESTRICT）
 
 ---
 
@@ -343,6 +376,7 @@ CREATE TABLE reviews (
   patient_id BIGINT NOT NULL COMMENT '患者ID',
   doctor_id BIGINT COMMENT '医生ID（评价医生时填写）',
   department_id BIGINT COMMENT '科室ID（评价科室时填写）',
+  target ENUM('DOCTOR', 'DEPARTMENT') NOT NULL COMMENT '评价对象类型',
   visit_id BIGINT COMMENT '关联就诊记录ID（可选）',
   score TINYINT NOT NULL COMMENT '评分（1-10）',
   comment VARCHAR(500) COMMENT '评价内容（可选）',
@@ -361,9 +395,14 @@ CREATE TABLE reviews (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='评价表';
 ```
 
-**业务规则**：
+**字段说明**：
+- `target`：评价对象类型（DOCTOR医生/DEPARTMENT科室），明确区分评价类型
 - `doctor_id` 和 `department_id` 至少填写一个
+
+**业务规则**：
 - 评分范围 1-10 分
+- 必须指定评价对象类型（医生或科室）
+- 支持关联就诊记录，也支持独立评价
 
 ---
 
