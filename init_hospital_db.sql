@@ -2,7 +2,8 @@
 -- 医院患者预约挂号系统 - 数据库初始化脚本
 -- 数据库版本: MySQL 8.0
 -- 字符集: utf8mb4
--- 创建日期: 2025-10-31
+-- 创建日期: 2025-11-08
+-- 最后更新: 2025-11-08
 -- ============================================
 
 -- 创建数据库
@@ -24,7 +25,7 @@ CREATE TABLE patients (
   age TINYINT UNSIGNED COMMENT '年龄（选填）',
   height DECIMAL(5,2) COMMENT '身高（cm，选填）',
   weight DECIMAL(5,2) COMMENT '体重（kg，选填）',
-  avatar_url VARCHAR(255) COMMENT '头像路径',
+  avatar_url TEXT COMMENT '头像路径（Base64编码）',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '注册时间',
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   INDEX idx_account (account),
@@ -41,7 +42,7 @@ CREATE TABLE doctors (
   password_hash VARCHAR(255) NOT NULL COMMENT '密码哈希（BCrypt）',
   name VARCHAR(64) NOT NULL COMMENT '医生姓名',
   status ENUM('ON_DUTY', 'OFF_DUTY') NOT NULL DEFAULT 'ON_DUTY' COMMENT '在岗状态',
-  avatar_url VARCHAR(255) COMMENT '头像路径',
+  avatar_url TEXT COMMENT '头像路径（Base64编码）',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   deleted_at DATETIME COMMENT '删除时间（NULL表示未删除）',
@@ -136,14 +137,25 @@ CREATE TABLE appointments (
 -- ============================================
 CREATE TABLE visits (
   id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '就诊记录ID',
+  patient_id BIGINT NOT NULL COMMENT '患者ID',
+  doctor_id BIGINT COMMENT '医生ID',
+  department_id BIGINT COMMENT '科室ID',
+  visit_at DATETIME NOT NULL COMMENT '就诊时间',
   appointment_id BIGINT NOT NULL UNIQUE COMMENT '关联预约ID',
-  fee DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '费用（元）',
+  total_fee DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT '总费用（元）',
   doctor_advice TEXT COMMENT '医生建议',
+  status ENUM('COMPLETED', 'CANCELLED') NOT NULL DEFAULT 'COMPLETED' COMMENT '就诊状态',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '就诊完成时间',
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   INDEX idx_appointment (appointment_id),
   INDEX idx_created (created_at),
-  CONSTRAINT fk_visit_appointment FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE CASCADE
+  INDEX idx_patient (patient_id),
+  INDEX idx_doctor (doctor_id),
+  INDEX idx_department (department_id),
+  CONSTRAINT fk_visit_appointment FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE CASCADE,
+  CONSTRAINT fk_visit_patient FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+  CONSTRAINT fk_visit_doctor FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE SET NULL,
+  CONSTRAINT fk_visit_department FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='就诊记录表';
 
 -- ============================================
@@ -153,6 +165,7 @@ CREATE TABLE items (
   id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '项目ID',
   name VARCHAR(128) NOT NULL COMMENT '项目名称',
   price DECIMAL(10,2) NOT NULL COMMENT '单价（元）',
+  unit VARCHAR(20) COMMENT '单位',
   type ENUM('DRUG', 'SERVICE') NOT NULL COMMENT '类型（DRUG药品/SERVICE服务）',
   enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -168,8 +181,10 @@ CREATE TABLE visit_items (
   id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '关联ID',
   visit_id BIGINT NOT NULL COMMENT '就诊记录ID',
   item_id BIGINT NOT NULL COMMENT '项目ID',
+  item_name VARCHAR(100) NOT NULL DEFAULT '' COMMENT '项目名称（快照）',
+  unit_price DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT '单价（快照）',
   quantity INT NOT NULL DEFAULT 1 COMMENT '数量',
-  amount DECIMAL(10,2) NOT NULL COMMENT '小计（单价×数量）',
+  total_amount DECIMAL(10,2) NOT NULL COMMENT '小计（单价×数量）',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   INDEX idx_visit (visit_id),
   INDEX idx_item (item_id),
@@ -185,6 +200,7 @@ CREATE TABLE reviews (
   patient_id BIGINT NOT NULL COMMENT '患者ID',
   doctor_id BIGINT COMMENT '医生ID（评价医生时填写）',
   department_id BIGINT COMMENT '科室ID（评价科室时填写）',
+  target ENUM('DOCTOR', 'DEPARTMENT') NOT NULL COMMENT '评价对象类型',
   visit_id BIGINT COMMENT '关联就诊记录ID（可选）',
   score TINYINT NOT NULL COMMENT '评分（1-10）',
   comment VARCHAR(500) COMMENT '评价内容（可选）',
